@@ -1,0 +1,8 @@
+and_to_or
+or_to_and
+lt_to_gt
+lt_to_le
+le_to_lt
+gt_to_lt
+gt_to_ge
+ge_to_gt

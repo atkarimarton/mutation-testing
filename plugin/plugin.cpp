@@ -17,6 +17,8 @@
 
 int plugin_is_GPL_compatible;
 
+std::set<tree_code> TO_SEARCH{TRUTH_ANDIF_EXPR, TRUTH_AND_EXPR, TRUTH_ORIF_EXPR, TRUTH_OR_EXPR, RETURN_EXPR,
+                              MODIFY_EXPR,};
 std::set<tree_code> LOGICAL_OPERATORS{TRUTH_ANDIF_EXPR, TRUTH_AND_EXPR, TRUTH_ORIF_EXPR, TRUTH_OR_EXPR};
 std::set<tree_code> AND_EXPR{TRUTH_ANDIF_EXPR, TRUTH_AND_EXPR};
 std::set<tree_code> OR_EXPR{TRUTH_ORIF_EXPR, TRUTH_OR_EXPR};
@@ -36,51 +38,126 @@ mutator mut;
 
 class Mutator {
 public:
+    static void swap(tree node, const std::set<tree_code> &from, tree_code to) {
+        if (TREE_CODE(node) == DECL_EXPR) {
+            tree child = TREE_OPERAND(node, 0);
+            if (TREE_CODE(child) == VAR_DECL && DECL_INITIAL(child) != nullptr &&
+                from.find(TREE_CODE(DECL_INITIAL(child))) != from.end()) {
+                if (position == desired_position) {
+                    tree &init_expr = DECL_INITIAL(child);
+                    change_node_type(init_expr, to);
+                }
+                position++;
+            }
+        }
+
+        for (int i = 0; i < TREE_OPERAND_LENGTH(node); i++) {
+            tree &op = TREE_OPERAND(node, i);
+
+            if (op == nullptr) {
+                return;
+            }
+
+            if (from.find(TREE_CODE(op)) != from.end()) {
+                if (position == desired_position) {
+                    change_node_type(op, to);
+                }
+                position++;
+            }
+
+            iterate_function_body(op);
+        }
+    }
+
     static void swap(tree node, tree_code from, tree_code to) {
-        if (TREE_CODE(node) == COND_EXPR || LOGICAL_OPERATORS.find(TREE_CODE(node)) != LOGICAL_OPERATORS.end()) {
-            for (int i = 0; i < TREE_OPERAND_LENGTH(node); i++) {
+        if (TREE_CODE(node) == DECL_EXPR) {
+            tree child = TREE_OPERAND(node, 0);
+            if (TREE_CODE(child) == VAR_DECL && DECL_INITIAL(child) != nullptr &&
+                TREE_CODE(DECL_INITIAL(child)) == from) {
+                if (position == desired_position) {
+                    tree &init_expr = DECL_INITIAL(child);
+                    change_node_type(init_expr, to);
+                }
+                position++;
+            }
+        }
+
+        for (int i = 0; i < TREE_OPERAND_LENGTH(node); i++) {
+            tree &op = TREE_OPERAND(node, i);
+
+            if (op == nullptr) {
+                return;
+            }
+
+            if (TREE_CODE(op) == from) {
+                if (position == desired_position) {
+                    change_node_type(op, to);
+                }
+                position++;
+            }
+            iterate_function_body(op);
+        }
+    }
+
+    static void swap2(tree node) {
+        if (TREE_CODE(node) == DECL_EXPR) {
+            tree child = TREE_OPERAND(node, 0);
+            tree &initial = DECL_INITIAL(child);
+
+            if (TREE_CODE(child) == VAR_DECL && initial != nullptr) {
+                if (TREE_CODE(initial) == RDIV_EXPR || TREE_CODE(initial) == TRUNC_DIV_EXPR) {
+                    if (position == desired_position) {
+                        change_node_type(initial, MULT_EXPR);
+                    }
+
+                    position++;
+                } else if (TREE_CODE(initial) == FIX_TRUNC_EXPR) {
+                    swap2(initial);
+                }
+            }
+        }
+
+        for (int i = 0; i < TREE_OPERAND_LENGTH(node); i++) {
+            tree &op = TREE_OPERAND(node, i);
+
+            if (op == nullptr) {
+                return;
+            }
+
+            if (TREE_CODE(op) == RDIV_EXPR || TREE_CODE(op) == TRUNC_DIV_EXPR) {
+                if (position == desired_position) {
+                    change_node_type(op, MULT_EXPR);
+                }
+                position++;
+            }
+            iterate_function_body(op);
+        }
+    }
+
+    static void swap(tree node, int val) {
+        if (TREE_CODE(node) == COND_EXPR) {
+            if (position == desired_position) {
+                TREE_OPERAND(node, 0) = build_int_cst(integer_type_node, val);
+                exit_code = 0;
+            }
+
+            position++;
+
+            for (int i = 1; i < TREE_OPERAND_LENGTH(node); i++) {
                 tree op = TREE_OPERAND(node, i);
 
-                if (op == nullptr) {
-                    return;
+                if (op != nullptr) {
+                    iterate_function_body(op);
                 }
-
-                if (TREE_CODE(op) == from) {
-                    if (position == desired_position) {
-                        tree arg1 = TREE_OPERAND(op, 0);
-                        tree arg2 = TREE_OPERAND(op, 1);
-                        TREE_OPERAND(node, i) = build2(to, TREE_TYPE(op), arg1, arg2);
-                        exit_code = 0;
-                    }
-                    position++;
-                }
-                iterate_function_body(op);
             }
         }
     }
 
-    static void swap(tree node, const std::set<tree_code> &from, tree_code to) {
-        if (TREE_CODE(node) == COND_EXPR || LOGICAL_OPERATORS.find(TREE_CODE(node)) != LOGICAL_OPERATORS.end()) {
-            for (int i = 0; i < TREE_OPERAND_LENGTH(node); i++) {
-                tree op = TREE_OPERAND(node, i);
-
-                if (op == nullptr) {
-                    return;
-                }
-
-                if (from.find(TREE_CODE(op)) != from.end()) {
-                    if (position == desired_position) {
-                        tree arg1 = TREE_OPERAND(op, 0);
-                        tree arg2 = TREE_OPERAND(op, 1);
-                        TREE_OPERAND(node, i) = build2(to, TREE_TYPE(op), arg1, arg2);
-                        exit_code = 0;
-                    }
-                    position++;
-                }
-
-                iterate_function_body(op);
-            }
-        }
+    static void change_node_type(tree &parent, tree_code to) {
+        tree arg1 = TREE_OPERAND(parent, 0);
+        tree arg2 = TREE_OPERAND(parent, 1);
+        parent = build2(to, TREE_TYPE(parent), arg1, arg2);
+        exit_code = 0;
     }
 };
 
@@ -104,6 +181,10 @@ void le_to_lt(tree node) {
     Mutator::swap(node, LE_EXPR, LT_EXPR);
 }
 
+void le_to_ge(tree node) {
+    Mutator::swap(node, LE_EXPR, GE_EXPR);
+}
+
 void gt_to_lt(tree node) {
     Mutator::swap(node, GT_EXPR, LT_EXPR);
 }
@@ -114,6 +195,54 @@ void gt_to_ge(tree node) {
 
 void ge_to_gt(tree node) {
     Mutator::swap(node, GE_EXPR, GT_EXPR);
+}
+
+void ge_to_le(tree node) {
+    Mutator::swap(node, GE_EXPR, LE_EXPR);
+}
+
+void plus_to_minus(tree node) {
+    Mutator::swap(node, PLUS_EXPR, MINUS_EXPR);
+}
+
+void minus_to_plus(tree node) {
+    Mutator::swap(node, MINUS_EXPR, PLUS_EXPR);
+}
+
+void div_to_mul(tree node) {
+    Mutator::swap2(node);
+}
+
+void eq_to_ne(tree node) {
+    Mutator::swap(node, EQ_EXPR, NE_EXPR);
+}
+
+void ne_to_eq(tree node) {
+    Mutator::swap(node, NE_EXPR, EQ_EXPR);
+}
+
+void lt_to_ge(tree node) {
+    Mutator::swap(node, LT_EXPR, GE_EXPR);
+}
+
+void le_to_gt(tree node) {
+    Mutator::swap(node, LE_EXPR, GT_EXPR);
+}
+
+void gt_to_le(tree node) {
+    Mutator::swap(node, GT_EXPR, LE_EXPR);
+}
+
+void ge_to_lt(tree node) {
+    Mutator::swap(node, GE_EXPR, LT_EXPR);
+}
+
+void truthify(tree node) {
+    Mutator::swap(node, 1);
+}
+
+void falsify(tree node) {
+    Mutator::swap(node, 0);
 }
 
 void iterate_function_body(tree expr) {
@@ -142,14 +271,27 @@ void iterate_function_body(tree expr) {
 
 void parse_plugin_arguments(const plugin_name_args &plugin_info) {
     std::map<std::string, mutator> ruleMap{
-            {"and_to_or", and_to_or_mutator},
-            {"or_to_and", or_to_and_mutator},
-            {"lt_to_gt",  lt_to_gt},
-            {"lt_to_le",  lt_to_le},
-            {"le_to_lt",  le_to_lt},
-            {"gt_to_lt",  gt_to_lt},
-            {"gt_to_ge",  gt_to_ge},
-            {"ge_to_gt",  ge_to_gt},
+            {"and_to_or",     and_to_or_mutator},
+            {"or_to_and",     or_to_and_mutator},
+            {"lt_to_gt",      lt_to_gt},
+            {"lt_to_le",      lt_to_le},
+            {"lt_to_ge",      lt_to_ge},
+            {"le_to_lt",      le_to_lt},
+            {"le_to_gt",      le_to_gt},
+            {"le_to_ge",      le_to_ge},
+            {"gt_to_lt",      gt_to_lt},
+            {"gt_to_ge",      gt_to_ge},
+            {"gt_to_le",      gt_to_le},
+            {"ge_to_gt",      ge_to_gt},
+            {"ge_to_lt",      ge_to_lt},
+            {"ge_to_le",      ge_to_le},
+            {"plus_to_minus", plus_to_minus},
+            {"minus_to_plus", minus_to_plus},
+            {"div_to_mul",    div_to_mul},
+            {"eq_to_ne",      eq_to_ne},
+            {"ne_to_eq",      ne_to_eq},
+            {"truthify",      truthify},
+            {"falsify",       falsify},
     };
 
     for (int i = 0; i < plugin_info.argc; i++) {

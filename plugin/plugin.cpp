@@ -17,9 +17,6 @@
 
 int plugin_is_GPL_compatible;
 
-std::set<tree_code> TO_SEARCH{TRUTH_ANDIF_EXPR, TRUTH_AND_EXPR, TRUTH_ORIF_EXPR, TRUTH_OR_EXPR, RETURN_EXPR,
-                              MODIFY_EXPR,};
-std::set<tree_code> LOGICAL_OPERATORS{TRUTH_ANDIF_EXPR, TRUTH_AND_EXPR, TRUTH_ORIF_EXPR, TRUTH_OR_EXPR};
 std::set<tree_code> AND_EXPR{TRUTH_ANDIF_EXPR, TRUTH_AND_EXPR};
 std::set<tree_code> OR_EXPR{TRUTH_ORIF_EXPR, TRUTH_OR_EXPR};
 std::vector<std::string> function_names;
@@ -28,17 +25,18 @@ std::string target_function;
 std::string rule;
 
 bool collect_function_names = false;
+bool debug_mode = false;
 int exit_code = 1;
 int desired_position;
 int position;
 
 typedef void (*mutator)(tree node);
 
-mutator mut;
+mutator mutation_operator;
 
 class Mutator {
 public:
-    static void swap(tree node, const std::set<tree_code> &from, tree_code to) {
+    static void mutate_node(tree node, const std::set<tree_code> &from, tree_code to) {
         if (TREE_CODE(node) == DECL_EXPR) {
             tree child = TREE_OPERAND(node, 0);
             if (TREE_CODE(child) == VAR_DECL && DECL_INITIAL(child) != nullptr &&
@@ -55,7 +53,7 @@ public:
             tree &op = TREE_OPERAND(node, i);
 
             if (op == nullptr) {
-                return;
+                continue;
             }
 
             if (from.find(TREE_CODE(op)) != from.end()) {
@@ -64,12 +62,11 @@ public:
                 }
                 position++;
             }
-
             iterate_function_body(op);
         }
     }
 
-    static void swap(tree node, tree_code from, tree_code to) {
+    static void mutate_node(tree node, tree_code from, tree_code to) {
         if (TREE_CODE(node) == DECL_EXPR) {
             tree child = TREE_OPERAND(node, 0);
             if (TREE_CODE(child) == VAR_DECL && DECL_INITIAL(child) != nullptr &&
@@ -86,7 +83,7 @@ public:
             tree &op = TREE_OPERAND(node, i);
 
             if (op == nullptr) {
-                return;
+                continue;
             }
 
             if (TREE_CODE(op) == from) {
@@ -99,7 +96,7 @@ public:
         }
     }
 
-    static void swap2(tree node) {
+    static void div_to_mul(tree node) {
         if (TREE_CODE(node) == DECL_EXPR) {
             tree child = TREE_OPERAND(node, 0);
             tree &initial = DECL_INITIAL(child);
@@ -111,30 +108,30 @@ public:
                     }
 
                     position++;
-                } else if (TREE_CODE(initial) == FIX_TRUNC_EXPR) {
-                    swap2(initial);
+                } else {
+                    div_to_mul(initial);
                 }
             }
-        }
+        } else {
+            for (int i = 0; i < TREE_OPERAND_LENGTH(node); i++) {
+                tree &op = TREE_OPERAND(node, i);
 
-        for (int i = 0; i < TREE_OPERAND_LENGTH(node); i++) {
-            tree &op = TREE_OPERAND(node, i);
-
-            if (op == nullptr) {
-                return;
-            }
-
-            if (TREE_CODE(op) == RDIV_EXPR || TREE_CODE(op) == TRUNC_DIV_EXPR) {
-                if (position == desired_position) {
-                    change_node_type(op, MULT_EXPR);
+                if (op == nullptr) {
+                    continue;
                 }
-                position++;
+
+                if (TREE_CODE(op) == RDIV_EXPR || TREE_CODE(op) == TRUNC_DIV_EXPR) {
+                    if (position == desired_position) {
+                        change_node_type(op, MULT_EXPR);
+                    }
+                    position++;
+                }
+                iterate_function_body(op);
             }
-            iterate_function_body(op);
         }
     }
 
-    static void swap(tree node, int val) {
+    static void mutate_cond_expr(tree node, int val) {
         if (TREE_CODE(node) == COND_EXPR) {
             if (position == desired_position) {
                 TREE_OPERAND(node, 0) = build_int_cst(integer_type_node, val);
@@ -153,6 +150,61 @@ public:
         }
     }
 
+    static void mul_to_div(tree node) {
+        if (TREE_CODE(node) == DECL_EXPR) {
+            tree child = TREE_OPERAND(node, 0);
+            tree &initial = DECL_INITIAL(child);
+
+            if (TREE_CODE(child) == VAR_DECL && initial != nullptr) {
+                if (TREE_CODE(initial) == MULT_EXPR) {
+                    if (position == desired_position) {
+                        if (TREE_CODE(TREE_TYPE(TREE_OPERAND(initial, 0))) == REAL_TYPE) {
+                            change_node_type(initial, RDIV_EXPR);
+                        } else {
+                            change_node_type(initial, TRUNC_DIV_EXPR);
+                        }
+                    }
+
+                    position++;
+                } else {
+                    mul_to_div(initial);
+                }
+            }
+        } else {
+            for (int i = 0; i < TREE_OPERAND_LENGTH(node); i++) {
+                tree &op = TREE_OPERAND(node, i);
+
+                if (op == nullptr) {
+                    continue;
+                }
+
+                if (TREE_CODE(op) == MULT_EXPR) {
+                    if (position == desired_position) {
+                        if (TREE_CODE(TREE_TYPE(TREE_OPERAND(op, 0))) == REAL_TYPE) {
+                            change_node_type(op, RDIV_EXPR);
+                        } else {
+                            change_node_type(op, TRUNC_DIV_EXPR);
+                        }
+                    }
+
+                    position++;
+                }
+                iterate_function_body(op);
+            }
+        }
+    }
+
+    static void return_zero(tree node) {
+        if (TREE_CODE(node) == RETURN_EXPR && position == desired_position) {
+            tree result_decl = build0(RESULT_DECL, integer_type_node);
+            tree zero_cst = build_int_cst(integer_type_node, 0);
+            TREE_OPERAND(node, 0) = build2(MODIFY_EXPR, integer_type_node, result_decl, zero_cst);
+            exit_code = 0;
+        }
+    }
+
+private:
+
     static void change_node_type(tree &parent, tree_code to) {
         tree arg1 = TREE_OPERAND(parent, 0);
         tree arg2 = TREE_OPERAND(parent, 1);
@@ -162,88 +214,97 @@ public:
 };
 
 void and_to_or_mutator(tree node) {
-    Mutator::swap(node, AND_EXPR, TRUTH_ORIF_EXPR);
+    Mutator::mutate_node(node, AND_EXPR, TRUTH_ORIF_EXPR);
 }
 
 void or_to_and_mutator(tree node) {
-    Mutator::swap(node, OR_EXPR, TRUTH_ANDIF_EXPR);
+    Mutator::mutate_node(node, OR_EXPR, TRUTH_ANDIF_EXPR);
 }
 
 void lt_to_gt(tree node) {
-    Mutator::swap(node, LT_EXPR, GT_EXPR);
-}
-
-void lt_to_le(tree node) {
-    Mutator::swap(node, LT_EXPR, LE_EXPR);
-}
-
-void le_to_lt(tree node) {
-    Mutator::swap(node, LE_EXPR, LT_EXPR);
-}
-
-void le_to_ge(tree node) {
-    Mutator::swap(node, LE_EXPR, GE_EXPR);
-}
-
-void gt_to_lt(tree node) {
-    Mutator::swap(node, GT_EXPR, LT_EXPR);
-}
-
-void gt_to_ge(tree node) {
-    Mutator::swap(node, GT_EXPR, GE_EXPR);
-}
-
-void ge_to_gt(tree node) {
-    Mutator::swap(node, GE_EXPR, GT_EXPR);
-}
-
-void ge_to_le(tree node) {
-    Mutator::swap(node, GE_EXPR, LE_EXPR);
-}
-
-void plus_to_minus(tree node) {
-    Mutator::swap(node, PLUS_EXPR, MINUS_EXPR);
-}
-
-void minus_to_plus(tree node) {
-    Mutator::swap(node, MINUS_EXPR, PLUS_EXPR);
-}
-
-void div_to_mul(tree node) {
-    Mutator::swap2(node);
-}
-
-void eq_to_ne(tree node) {
-    Mutator::swap(node, EQ_EXPR, NE_EXPR);
-}
-
-void ne_to_eq(tree node) {
-    Mutator::swap(node, NE_EXPR, EQ_EXPR);
+    Mutator::mutate_node(node, LT_EXPR, GT_EXPR);
 }
 
 void lt_to_ge(tree node) {
-    Mutator::swap(node, LT_EXPR, GE_EXPR);
+    Mutator::mutate_node(node, LT_EXPR, GE_EXPR);
+}
+
+void lt_to_le(tree node) {
+    Mutator::mutate_node(node, LT_EXPR, LE_EXPR);
+}
+
+void le_to_lt(tree node) {
+    Mutator::mutate_node(node, LE_EXPR, LT_EXPR);
+}
+
+void le_to_ge(tree node) {
+    Mutator::mutate_node(node, LE_EXPR, GE_EXPR);
 }
 
 void le_to_gt(tree node) {
-    Mutator::swap(node, LE_EXPR, GT_EXPR);
+    Mutator::mutate_node(node, LE_EXPR, GT_EXPR);
 }
 
 void gt_to_le(tree node) {
-    Mutator::swap(node, GT_EXPR, LE_EXPR);
+    Mutator::mutate_node(node, GT_EXPR, LE_EXPR);
+}
+
+void gt_to_lt(tree node) {
+    Mutator::mutate_node(node, GT_EXPR, LT_EXPR);
+}
+
+void gt_to_ge(tree node) {
+    Mutator::mutate_node(node, GT_EXPR, GE_EXPR);
+}
+
+void ge_to_gt(tree node) {
+    Mutator::mutate_node(node, GE_EXPR, GT_EXPR);
 }
 
 void ge_to_lt(tree node) {
-    Mutator::swap(node, GE_EXPR, LT_EXPR);
+    Mutator::mutate_node(node, GE_EXPR, LT_EXPR);
+}
+
+void ge_to_le(tree node) {
+    Mutator::mutate_node(node, GE_EXPR, LE_EXPR);
+}
+
+void plus_to_minus(tree node) {
+    Mutator::mutate_node(node, PLUS_EXPR, MINUS_EXPR);
+}
+
+void minus_to_plus(tree node) {
+    Mutator::mutate_node(node, MINUS_EXPR, PLUS_EXPR);
+}
+
+void div_to_mul(tree node) {
+    Mutator::div_to_mul(node);
+}
+
+void mul_to_div(tree node) {
+    Mutator::mul_to_div(node);
+}
+
+void eq_to_ne(tree node) {
+    Mutator::mutate_node(node, EQ_EXPR, NE_EXPR);
+}
+
+void ne_to_eq(tree node) {
+    Mutator::mutate_node(node, NE_EXPR, EQ_EXPR);
 }
 
 void truthify(tree node) {
-    Mutator::swap(node, 1);
+    Mutator::mutate_cond_expr(node, 1);
 }
 
 void falsify(tree node) {
-    Mutator::swap(node, 0);
+    Mutator::mutate_cond_expr(node, 0);
 }
+
+void return_zero(tree node) {
+    Mutator::return_zero(node);
+}
+
 
 void iterate_function_body(tree expr) {
     tree body;
@@ -261,11 +322,11 @@ void iterate_function_body(tree expr) {
             if (TREE_CODE(stmt) == BIND_EXPR || TREE_CODE(stmt) == STATEMENT_LIST) {
                 iterate_function_body(stmt);
             } else {
-                mut(stmt);
+                mutation_operator(stmt);
             }
         }
     } else {
-        mut(body);
+        mutation_operator(body);
     }
 }
 
@@ -288,17 +349,19 @@ void parse_plugin_arguments(const plugin_name_args &plugin_info) {
             {"plus_to_minus", plus_to_minus},
             {"minus_to_plus", minus_to_plus},
             {"div_to_mul",    div_to_mul},
+            {"mul_to_div",    mul_to_div},
             {"eq_to_ne",      eq_to_ne},
             {"ne_to_eq",      ne_to_eq},
             {"truthify",      truthify},
             {"falsify",       falsify},
+            {"return_zero",   return_zero},
     };
 
     for (int i = 0; i < plugin_info.argc; i++) {
         std::string key = plugin_info.argv[i].key;
         if (key == "rule") {
             rule = plugin_info.argv[i].value;
-            mut = ruleMap[rule];
+            mutation_operator = ruleMap[rule];
         } else if (key == "target_function") {
             target_function = plugin_info.argv[i].value;
         } else if (key == "collect_function_names") {
@@ -307,6 +370,8 @@ void parse_plugin_arguments(const plugin_name_args &plugin_info) {
             result_directory = plugin_info.argv[i].value;
         } else if (key == "position") {
             desired_position = strtol(plugin_info.argv[i].value, nullptr, 10);
+        } else if (key == "debug") {
+            debug_mode = true;
         }
     }
 }
@@ -320,11 +385,21 @@ void finish_parse_callback(void *event_data, void *user_data) {
     } else if (function_name == target_function) {
         tree body = BIND_EXPR_BODY(DECL_SAVED_TREE(t));
 
-//        debug_tree(body);
-//        debug_generic_expr(body);
+        if (debug_mode) {
+            std::cout << "Before modification" << std::endl;
+            debug_tree(body);
+            debug_generic_expr(body);
+            std::cout << "------------------" << std::endl;
+        }
+
         iterate_function_body(body);
-//        debug_tree(body);
-//        debug_generic_expr(body);
+
+        if (debug_mode) {
+            std::cout << "After modification" << std::endl;
+            debug_tree(body);
+            debug_generic_expr(body);
+            std::cout << "------------------" << std::endl;
+        }
 
         if (exit_code == 0) {
             std::string filename =

@@ -1,8 +1,8 @@
 and_to_or
 or_to_and
 lt_to_gt
-lt_to_ge
 lt_to_le
+lt_to_ge
 le_to_lt
 le_to_gt
 le_to_ge
@@ -15,7 +15,9 @@ ge_to_le
 plus_to_minus
 minus_to_plus
 div_to_mul
+mul_to_div
 eq_to_ne
 ne_to_eq
 truthify
 falsify
+return_zero

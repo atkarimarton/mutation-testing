@@ -392,7 +392,7 @@ void finish_parse_callback(void *event_data, void *user_data) {
 
         traverse_tree(body);
 
-        if (debug_mode) {
+        if (debug_mode && !exit_code) {
             std::cout << "After modification" << std::endl;
             debug_tree(body);
             debug_generic_expr(body);
@@ -401,7 +401,7 @@ void finish_parse_callback(void *event_data, void *user_data) {
 
         if (exit_code == 0) {
             std::string filename =
-                    result_directory + target_function + '_' + rule + '_' + std::to_string(desired_position);
+                    result_directory + target_function + '_' + rule + '_' + std::to_string(desired_position) + ".txt";
             FILE *fp = fopen(&filename[0], "w");
             print_generic_stmt(fp, body);
             fclose(fp);

@@ -1,7 +1,6 @@
 #!/bin/bash
 
 mutants=0
-survived=0
 position=0
 functions='function_names.txt'
 rules='rules.txt'
@@ -26,20 +25,9 @@ while read function; do
       exit_code=$?
 
       if [ $exit_code -eq 0 ]; then
-        gcc test/programTest.c program.o test/unity.c -o testExample
-        ./testExample >/dev/null
-        exit_code=$?
-
-        if [ $exit_code -eq 0 ]; then
-          echo "MUTANT SURVIVED $function $rule $position"
-          survived=$((survived + 1))
-        else
-          echo "MUTANT CAUGHT   $function $rule $position"
-          rm "$result_directory""$function"_"$rule"_"$position"
-        fi
-
-        mutants=$((mutants + 1))
+        echo "MUTANT GENERATED $function $rule $position"
         position=$((position + 1))
+        mutants=$((mutants + 1))
       else
         position=-1
       fi
@@ -47,10 +35,5 @@ while read function; do
   done <$rules
 done <$temp_directory/$functions
 
-killed=$((mutants - survived))
-
-echo "Number of mutants: $mutants, survived: $survived"
-if [ $mutants -gt 0 ]; then
-  awk -v killed=$killed -v mutants=$mutants 'BEGIN { printf "Mutation score: %.2f%%\n", killed/mutants*100 }'
-fi
+echo "Number of mutants: $mutants"
 rm -r $temp_directory

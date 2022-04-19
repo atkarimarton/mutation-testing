@@ -17,8 +17,6 @@
 
 int plugin_is_GPL_compatible;
 
-std::set<tree_code> AND_EXPR{TRUTH_ANDIF_EXPR, TRUTH_AND_EXPR};
-std::set<tree_code> OR_EXPR{TRUTH_ORIF_EXPR, TRUTH_OR_EXPR};
 std::vector<std::string> function_names;
 std::string result_directory;
 std::string target_function;
@@ -62,7 +60,7 @@ public:
                 }
                 position++;
             }
-            iterate_function_body(op);
+            traverse_tree(op);
         }
     }
 
@@ -92,7 +90,7 @@ public:
                 }
                 position++;
             }
-            iterate_function_body(op);
+            traverse_tree(op);
         }
     }
 
@@ -106,7 +104,6 @@ public:
                     if (position == desired_position) {
                         change_node_type(initial, MULT_EXPR);
                     }
-
                     position++;
                 } else {
                     div_to_mul(initial);
@@ -126,7 +123,7 @@ public:
                     }
                     position++;
                 }
-                iterate_function_body(op);
+                traverse_tree(op);
             }
         }
     }
@@ -144,7 +141,7 @@ public:
                 tree op = TREE_OPERAND(node, i);
 
                 if (op != nullptr) {
-                    iterate_function_body(op);
+                    traverse_tree(op);
                 }
             }
         }
@@ -189,7 +186,7 @@ public:
 
                     position++;
                 }
-                iterate_function_body(op);
+                traverse_tree(op);
             }
         }
     }
@@ -214,10 +211,12 @@ private:
 };
 
 void and_to_or_mutator(tree node) {
+    std::set<tree_code> AND_EXPR{TRUTH_ANDIF_EXPR, TRUTH_AND_EXPR};
     Mutator::mutate_node(node, AND_EXPR, TRUTH_ORIF_EXPR);
 }
 
 void or_to_and_mutator(tree node) {
+    std::set<tree_code> OR_EXPR{TRUTH_ORIF_EXPR, TRUTH_OR_EXPR};
     Mutator::mutate_node(node, OR_EXPR, TRUTH_ANDIF_EXPR);
 }
 
@@ -305,24 +304,21 @@ void return_zero(tree node) {
     Mutator::return_zero(node);
 }
 
-
-void iterate_function_body(tree expr) {
-    tree body;
+void traverse_tree(tree expr) {
+    tree body = expr;
 
     if (TREE_CODE(expr) == BIND_EXPR) {
         body = BIND_EXPR_BODY(expr);
-    } else {
-        body = expr;
     }
 
     if (TREE_CODE(body) == STATEMENT_LIST) {
         for (tree_stmt_iterator i = tsi_start(body); !tsi_end_p(i); tsi_next(&i)) {
-            tree stmt = tsi_stmt(i);
+            tree statement = tsi_stmt(i);
 
-            if (TREE_CODE(stmt) == BIND_EXPR || TREE_CODE(stmt) == STATEMENT_LIST) {
-                iterate_function_body(stmt);
+            if (TREE_CODE(statement) == BIND_EXPR || TREE_CODE(statement) == STATEMENT_LIST) {
+                traverse_tree(statement);
             } else {
-                mutation_operator(stmt);
+                mutation_operator(statement);
             }
         }
     } else {
@@ -372,6 +368,8 @@ void parse_plugin_arguments(const plugin_name_args &plugin_info) {
             desired_position = strtol(plugin_info.argv[i].value, nullptr, 10);
         } else if (key == "debug") {
             debug_mode = true;
+        } else {
+            std::cerr << "Unknown plugin argument: " << key << std::endl;
         }
     }
 }
@@ -392,7 +390,7 @@ void finish_parse_callback(void *event_data, void *user_data) {
             std::cout << "------------------" << std::endl;
         }
 
-        iterate_function_body(body);
+        traverse_tree(body);
 
         if (debug_mode) {
             std::cout << "After modification" << std::endl;

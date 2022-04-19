@@ -1,7 +1,7 @@
 #ifndef PLUGIN_HPP
 #define PLUGIN_HPP
 
-void iterate_function_body(tree);
+void traverse_tree(tree expr);
 void and_to_or_mutator(tree);
 void or_to_and_mutator(tree);
 void lt_to_gt(tree);

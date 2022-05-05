@@ -1,0 +1,138 @@
+<style>
+    * {
+        background: aliceblue;
+        font-size: 16px;
+        line-height: 20px;
+    }
+
+    div.title {
+        margin: 1em;
+        text-align: center;
+        font-size: 48px;
+    }
+
+    div.original_source_code {
+        margin-top: 5em;
+    }
+
+    pre.original_function {
+        overflow-y: auto;
+        border: 2px solid gray;
+        margin: 1em 10em;
+        padding: 2em 3em;
+    }
+
+    code:first-child,
+    code:last-child {
+        margin-left: -1em;
+    }
+
+    pre.mutant_function {
+        display: none;
+    }
+
+    .dropdown_menu {
+        position: relative;
+        max-height: 340px;
+        width: fit-content;
+        block-size: fit-content;
+        margin-bottom: -40px;
+        line-height: 16px;
+    }
+
+    .dropdown_menu_content {
+        display: none;
+        position: relative;
+        top: -3em;
+        background-color: rgba(243, 238, 238);
+        min-width: 200px;
+        box-shadow: 4px 4px 12px 4px rgba(0, 0, 0, 0.3);
+        padding: 0 16px;
+        margin-bottom: -48px;
+    }
+
+    .dropdown_menu_content * {
+        background-color: rgba(243, 238, 238, 0.86);
+        line-height: 16px;
+        margin: 0;
+        overflow-wrap: break-word;
+        word-break: break-all;
+    }
+
+    .dropdown_menu_content :not(.close_drowdown) {
+        padding-left: 2em;
+    }
+
+    .mutant_line {
+        white-space: normal;
+    }
+
+    .applied_mutator {
+        float: left;
+    }
+
+    .close_drowdown {
+        float: right;
+        margin: 1em 3em;
+    }
+</style>
+
+<script src='https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js'></script>
+<script>
+    $(document).ready(function () {
+        $('.original_source_code').append($('.original_function'));
+
+        $('.original_function, .mutant_function').each(function () {
+            $(this.childNodes[0]).html(function (i, old) {
+                return '<span>' + old.split('\n').join('</span>\n<span>') + '</span>';
+            })
+        });
+
+        $('.mutant_function').each(function () {
+            let function_name = $(this)[0].classList[1];
+            let mutator = $(this)[0].classList[2];
+
+            for (let i = 0; i < $(this).find('span').length; i++) {
+                let content1 = $('pre.original_function.' + function_name + ' code').find('span')[i];
+                let content2 = $(this).find('span')[i];
+
+                if (content1.textContent !== content2.textContent) {
+                    let temp = document.getElementById('dropdown_template');
+                    let clone = temp.content.cloneNode(true);
+                    clone.querySelector('.mutant_line').textContent = content2.textContent;
+                    clone.querySelector('.applied_mutator').textContent = mutator;
+
+                    $(content1).after(clone);
+                    break;
+                }
+            }
+        });
+
+        $('.show_mutant').click(function (event) {
+            $(event.currentTarget).next().toggle(300);
+        });
+
+        $('.close_drowdown').click(function (event) {
+            $(event.currentTarget).parent().hide(300);
+        });
+    });
+</script>
+
+<template id='dropdown_template'>
+    <div class='dropdown_menu'>
+        <button class='show_mutant'>Show uncaught mutant</button>
+        <div class='dropdown_menu_content'>
+            <button class='close_drowdown'>X</button>
+            <p style='float:left'>The line above was mutated to:</p>
+            <p class='mutant_line'></p>
+            <p>Applied mutator:</p>
+            <div class='applied_mutator'></div>
+            <p>Please mark this as equivalent or create additional test case that is able to detect this mutant.</p>
+        </div>
+    </div>
+</template>
+
+<title>Mutation test report</title>
+
+<div class='title'>Mutation test report</div>
+<div class='original_source_code'></div>

@@ -5,13 +5,18 @@ void setUp(void) {}
 
 void tearDown(void) {}
 
-void testFunc(void) {
-    TEST_ASSERT_EQUAL_UINT(2, func(2, 3));
-    TEST_ASSERT_EQUAL_UINT(2, func2(2, 3));
+void test_calc(void) {
+    TEST_ASSERT_EQUAL_INT(-2, calc(1, 1));
+    TEST_ASSERT_EQUAL_INT(3, calc(3, 0));
+}
+
+void test_greater(void) {
+    TEST_ASSERT_GREATER_THAN_INT(12, 14);
 }
 
 int main(void) {
     UNITY_BEGIN();
-    RUN_TEST(testFunc);
+    RUN_TEST(test_calc);
+    RUN_TEST(test_greater);
     return UNITY_END();
 }

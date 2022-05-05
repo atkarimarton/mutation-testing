@@ -5,8 +5,18 @@ survived=0
 position=0
 functions='function_names.txt'
 rules='rules.txt'
-result_directory="result/"
-temp_directory="tmp/"
+test_file='programTest.c'
+result_directory='result/'
+temp_directory='tmp/'
+
+gcc test/programTest.c src/program.c test/unity.c -o testExample
+./testExample >/dev/null
+exit_code=$?
+
+if [ $exit_code -ne 0 ]; then
+  echo "Test is failing without mutation, please check the tests."
+  exit
+fi
 
 rm -f -r $result_directory
 mkdir -p $result_directory
@@ -26,7 +36,7 @@ while read function; do
       exit_code=$?
 
       if [ $exit_code -eq 0 ]; then
-        gcc test/programTest.c program.o test/unity.c -o testExample
+        gcc test/$test_file program.o test/unity.c -o testExample
         ./testExample >/dev/null
         exit_code=$?
 
@@ -35,7 +45,7 @@ while read function; do
           survived=$((survived + 1))
         else
           echo "MUTANT CAUGHT   $function $rule $position"
-          rm "$result_directory""$function"_"$rule"_"$position"
+          rm "$result_directory""$function"-"$rule"-"$position.txt"
         fi
 
         mutants=$((mutants + 1))
@@ -49,10 +59,10 @@ done <$temp_directory/$functions
 
 killed=$((mutants - survived))
 
+echo "-----------------------"
 echo "Number of mutants: $mutants, survived: $survived"
 if [ $mutants -gt 0 ]; then
   awk -v killed=$killed -v mutants=$mutants 'BEGIN { printf "Mutation score: %.2f%%\n", killed/mutants*100 }'
 fi
 rm -r $temp_directory
-rm program.o
 rm testExample

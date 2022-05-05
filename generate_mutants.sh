@@ -21,7 +21,7 @@ while read function; do
         -fplugin-arg-plugin-target_function="$function" \
         -fplugin-arg-plugin-position="$position" \
         -fplugin-arg-plugin-resultdir="$result_directory" \
-        src/program.c -o $result_directory/"$function"_"$rule"_"$position".out
+        src/program.c -o $result_directory/"$function"-"$rule"-"$position".out
       exit_code=$?
 
       if [ $exit_code -eq 0 ]; then

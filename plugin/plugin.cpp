@@ -3,6 +3,7 @@
 #include <vector>
 #include <set>
 #include <string>
+#include <map>
 #include <algorithm>
 
 #include <gcc-plugin.h>
@@ -11,30 +12,31 @@
 #include <print-tree.h>
 #include "tree-pretty-print.h"
 #include <plugin-version.h>
-#include <map>
+#include <dirent.h>
 
 #include "plugin.h"
 
 int plugin_is_GPL_compatible;
 
-std::vector<std::string> function_names;
+std::vector <std::string> function_names;
 std::string result_directory;
 std::string target_function;
 std::string rule;
 
 bool collect_function_names = false;
 bool debug_mode = false;
+bool generate_html_report = false;
+
 int exit_code = 1;
 int desired_position;
 int position;
 
 typedef void (*mutator)(tree node);
-
 mutator mutation_operator;
 
 class Mutator {
 public:
-    static void mutate_node(tree node, const std::set<tree_code> &from, tree_code to) {
+    static void mutate_node(tree node, const std::set <tree_code> &from, tree_code to) {
         if (TREE_CODE(node) == DECL_EXPR) {
             tree child = TREE_OPERAND(node, 0);
             if (TREE_CODE(child) == VAR_DECL && DECL_INITIAL(child) != nullptr &&
@@ -193,15 +195,14 @@ public:
 
     static void return_zero(tree node) {
         if (TREE_CODE(node) == RETURN_EXPR && position == desired_position) {
-            tree result_decl = build0(RESULT_DECL, integer_type_node);
             tree zero_cst = build_int_cst(integer_type_node, 0);
-            TREE_OPERAND(node, 0) = build2(MODIFY_EXPR, integer_type_node, result_decl, zero_cst);
+            tree modify_expr = TREE_OPERAND(node, 0);
+            TREE_OPERAND(modify_expr, 1) = zero_cst;
             exit_code = 0;
         }
     }
 
 private:
-
     static void change_node_type(tree &parent, tree_code to) {
         tree arg1 = TREE_OPERAND(parent, 0);
         tree arg2 = TREE_OPERAND(parent, 1);
@@ -211,12 +212,12 @@ private:
 };
 
 void and_to_or_mutator(tree node) {
-    std::set<tree_code> AND_EXPR{TRUTH_ANDIF_EXPR, TRUTH_AND_EXPR};
+    std::set <tree_code> AND_EXPR{TRUTH_ANDIF_EXPR, TRUTH_AND_EXPR};
     Mutator::mutate_node(node, AND_EXPR, TRUTH_ORIF_EXPR);
 }
 
 void or_to_and_mutator(tree node) {
-    std::set<tree_code> OR_EXPR{TRUTH_ORIF_EXPR, TRUTH_OR_EXPR};
+    std::set <tree_code> OR_EXPR{TRUTH_ORIF_EXPR, TRUTH_OR_EXPR};
     Mutator::mutate_node(node, OR_EXPR, TRUTH_ANDIF_EXPR);
 }
 
@@ -327,7 +328,7 @@ void traverse_tree(tree expr) {
 }
 
 void parse_plugin_arguments(const plugin_name_args &plugin_info) {
-    std::map<std::string, mutator> ruleMap{
+    std::map <std::string, mutator> ruleMap{
             {"and_to_or",     and_to_or_mutator},
             {"or_to_and",     or_to_and_mutator},
             {"lt_to_gt",      lt_to_gt},
@@ -368,6 +369,8 @@ void parse_plugin_arguments(const plugin_name_args &plugin_info) {
             desired_position = strtol(plugin_info.argv[i].value, nullptr, 10);
         } else if (key == "debug") {
             debug_mode = true;
+        } else if (key == "generate_html_report") {
+            generate_html_report = true;
         } else {
             std::cerr << "Unknown plugin argument: " << key << std::endl;
         }
@@ -380,31 +383,38 @@ void finish_parse_callback(void *event_data, void *user_data) {
 
     if (function_name == "main") {
         return;
-    } else if (function_name == target_function) {
+    } else {
         tree body = BIND_EXPR_BODY(DECL_SAVED_TREE(t));
 
-        if (debug_mode) {
-            std::cout << "Before modification" << std::endl;
-            debug_tree(body);
-            debug_generic_expr(body);
-            std::cout << "------------------" << std::endl;
+        if (function_name == target_function) {
+            if (debug_mode) {
+                std::cout << "Before modification" << std::endl;
+                debug_tree(body);
+                debug_generic_expr(body);
+                std::cout << "------------------" << std::endl;
+            }
+
+            traverse_tree(body);
+
+            if (exit_code == 0) {
+                if (debug_mode) {
+                    std::cout << "After modification" << std::endl;
+                    debug_tree(body);
+                    debug_generic_expr(body);
+                    std::cout << "------------------" << std::endl;
+                }
+
+                std::string filename =
+                        result_directory + target_function + '-' + rule + '-' + std::to_string(desired_position) +
+                        ".txt";
+                FILE *fp = fopen(&filename[0], "w");
+                print_generic_stmt(fp, body);
+                fclose(fp);
+            }
         }
 
-        traverse_tree(body);
-
-        if (debug_mode && !exit_code) {
-            std::cout << "After modification" << std::endl;
-            debug_tree(body);
-            debug_generic_expr(body);
-            std::cout << "------------------" << std::endl;
-        }
-
-        if (exit_code == 0) {
-            std::string filename =
-                    result_directory + target_function + '_' + rule + '_' + std::to_string(desired_position) + ".txt";
-            FILE *fp = fopen(&filename[0], "w");
-            print_generic_stmt(fp, body);
-            fclose(fp);
+        if (generate_html_report) {
+            copy_function_to_report(t);
         }
     }
 
@@ -426,7 +436,59 @@ void plugin_finish_callback(void *event_data, void *user_data) {
             filestream.close();
         }
     }
+
+    if (generate_html_report) {
+        if (auto dir = opendir(result_directory.c_str())) {
+            while (auto file = readdir(dir)) {
+                std::string filename = file->d_name;
+                if (filename.length() > 4 && filename.compare(filename.length() - 4, 4, ".txt") == 0) {
+                    copy_mutant_to_report(filename);
+                }
+            }
+            closedir(dir);
+        }
+        exit_code = 0;
+    }
+
     exit(exit_code);
+}
+
+void copy_function_to_report(const tree node) {
+    std::string function_name = IDENTIFIER_POINTER(DECL_NAME(node));
+    tree body = BIND_EXPR_BODY(DECL_SAVED_TREE(node));
+
+    std::string filename = "test_report.html";
+    FILE *fp = fopen(&filename[0], "a");
+
+    fprintf(fp, "%s%s%s", "<pre class='original_function ", function_name.c_str(), "'><code>");
+    print_generic_expr(fp, node);
+    fprintf(fp, "%s", "() {\n");
+    print_generic_expr(fp, body);
+    fprintf(fp, "%s", "\n}</code></pre>");
+
+    fclose(fp);
+}
+
+void copy_mutant_to_report(const std::string &filename) {
+    std::string function_name = filename.substr(0, filename.find("-"));
+    std::string mutator = filename.substr(function_name.length() + 1, filename.find("-", function_name.length() + 1));
+    mutator = mutator.substr(0, mutator.find("-"));
+
+    std::string line;
+    std::ifstream source(result_directory + "/" + filename);
+    std::ofstream target("test_report.html", std::ios_base::app);
+
+    if (source && target) {
+        target << "<pre class='mutant_function " << function_name << " " << mutator << "'>" << "<code>"
+                 << function_name << "() {\n";
+        while (getline(source, line)) {
+            target  << line << "\n";
+        }
+        target << "}</code></pre>\n";
+    }
+
+    source.close();
+    target.close();
 }
 
 int plugin_init(struct plugin_name_args *plugin_info, struct plugin_gcc_version *version) {
@@ -434,5 +496,13 @@ int plugin_init(struct plugin_name_args *plugin_info, struct plugin_gcc_version 
 
     register_callback(plugin_info->base_name, PLUGIN_FINISH_PARSE_FUNCTION, finish_parse_callback, nullptr);
     register_callback(plugin_info->base_name, PLUGIN_FINISH, plugin_finish_callback, nullptr);
+
+    if (generate_html_report) {
+        remove("test_report.html");
+        std::ifstream source("html_report/report_template.html", std::ios::binary);
+        std::ofstream target("test_report.html", std::ios::binary);
+        target << source.rdbuf();
+    }
+
     return 0;
 }

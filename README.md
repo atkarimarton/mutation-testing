@@ -113,3 +113,11 @@ The tooling currently targets a single hardcoded source file:
 ## HTML report
 
 `make generate_report` produces `test_report.html`: the original source of each function, with any mutant that survived testing rendered as a clickable "Show uncaught mutant" dropdown directly under the affected line, showing the mutated line and which operator produced it. This makes it easy to see, at a glance, exactly which branches/conditions/operators are under-tested.
+
+## Future work
+
+**Generalizing beyond a single source file.** The tool currently targets one hardcoded file (`SOURCE_FILES` in the makefile) and one hardcoded test file (`unity_test.sh`). Extending it to accept a source directory or file list — and discovering the corresponding test files automatically — would let it be pointed at an arbitrary C project instead of a single demo function, which is the main step needed to move this from a proof of concept to a usable tool.
+
+**Performance.** Every `(function, rule, position)` mutant is currently compiled and tested with its own sequential `gcc` invocation, so runtime scales linearly with the number of mutants. Two improvements would help this scale to real codebases: parallelizing independent mutant compilations (e.g. with `xargs -P` or GNU parallel, since each mutant is compiled and tested independently), and adding selective or randomized mutant sampling to approximate the mutation score of the full mutant set at a fraction of the cost, a well-established technique for larger projects where exhaustive mutation is too slow.
+
+**CI integration.** Results are currently reported as console output and a manually-opened HTML file, which works for local, interactive use but not for automated pipelines. Adding a CI-friendly mode — for example, exiting with a non-zero status when the mutation score falls below a configurable threshold, or emitting machine-readable output such as JUnit-style XML — would let mutation testing be enforced automatically in a build pipeline rather than run by hand.
